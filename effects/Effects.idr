@@ -43,7 +43,7 @@ data UnionEffLists : List EFFECT -> List EFFECT -> List EFFECT -> List EFFECT ->
      AddUEF    : UnionEffLists i  y  i   r -> UnionEffLists i ((MkEff a x)::y) []                 ((MkEff a x)::r)
      CopyIUEF  : UnionEffLists i  [] acc (reverse i)
      DoneUEF   : UnionEffLists [] [] acc r
-     GiveUpUEF : UnionEffLists i  y  acc ((reverse i) ++ (reverse y))
+     GiveUpUEF : UnionEffLists i  y  acc ((reverse y) ++ (reverse i))
 
 -- make an environment corresponding to a sub-list
 dropEnv : Env m ys -> SubList xs ys -> Env m xs
