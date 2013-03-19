@@ -1,3 +1,4 @@
 #!/bin/bash
-idris $@ reg012.lidr --check
+idris $@ reg012.idr -o reg012
+./reg012
 rm -f reg012 *.ibc
