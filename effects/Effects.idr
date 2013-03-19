@@ -179,7 +179,6 @@ pure = value
 infixl 3 <|>
 
 (<|>) : Alternative m =>
-        {a: _} -> {e : Effect} ->
         {default tactics { reflect unionEffLists 100; solve; }
           inPrfs :  UnionEffLists xs ys xs zs} ->
         {default tactics { reflect unionEffLists 100; solve; }
