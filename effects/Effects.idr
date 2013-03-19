@@ -37,6 +37,14 @@ data EffElem : (Type -> Type -> Type -> Type) -> Type ->
      Here : EffElem x a (MkEff a x :: xs)
      There : EffElem x a xs -> EffElem x a (y :: xs)
 
+data UnionEffLists : List EFFECT -> List EFFECT -> List EFFECT -> List EFFECT -> Type where
+     DropUEF   : UnionEffLists i  y  acc r -> UnionEffLists i ((MkEff a x)::y) ((MkEff a x)::acc) r
+     SearchUEF : UnionEffLists i  y  acc r -> UnionEffLists i y                ((MkEff a x)::acc) r
+     AddUEF    : UnionEffLists i  y  i   r -> UnionEffLists i ((MkEff a x)::y) []                 ((MkEff a x)::r)
+     CopyIUEF  : UnionEffLists i  [] acc (reverse i)
+     DoneUEF   : UnionEffLists [] [] acc r
+     GiveUpUEF : UnionEffLists i  y  acc ((reverse i) ++ (reverse y))
+
 -- make an environment corresponding to a sub-list
 dropEnv : Env m ys -> SubList xs ys -> Env m xs
 dropEnv [] SubNil = []
@@ -50,8 +58,8 @@ updateWith ys        (x :: xs) (Drop rest) = x :: updateWith ys xs rest
 updateWith []        []        SubNil      = []
 
 -- put things back, replacing old with new in the sub-environment
-rebuildEnv : Env m ys' -> (prf : SubList ys xs) -> 
-             Env m xs -> Env m (updateWith ys' xs prf) 
+rebuildEnv : Env m ys' -> (prf : SubList ys xs) ->
+             Env m xs -> Env m (updateWith ys' xs prf)
 rebuildEnv []        SubNil      env = env
 rebuildEnv (x :: xs) (Keep rest) (y :: env) = x :: rebuildEnv xs rest env
 rebuildEnv xs        (Drop rest) (y :: env) = y :: rebuildEnv xs rest env
@@ -60,20 +68,30 @@ rebuildEnv xs        (Drop rest) (y :: env) = y :: rebuildEnv xs rest env
 
 -- some proof automation
 findEffElem : Nat -> Tactic -- Nat is maximum search depth
-findEffElem O = Refine "Here" `Seq` Solve 
-findEffElem (S n) = GoalType "EffElem" 
+findEffElem O = Refine "Here" `Seq` Solve
+findEffElem (S n) = GoalType "EffElem"
           (Try (Refine "Here" `Seq` Solve)
                (Refine "There" `Seq` (Solve `Seq` findEffElem n)))
 
 findSubList : Nat -> Tactic
 findSubList O = Refine "SubNil" `Seq` Solve
 findSubList (S n)
-   = GoalType "SubList" 
+   = GoalType "SubList"
          (Try (Refine "subListId" `Seq` Solve)
          ((Try (Refine "Keep" `Seq` Solve)
                (Refine "Drop" `Seq` Solve)) `Seq` findSubList n))
 
-updateResTy : (xs : List EFFECT) -> EffElem e a xs -> e a b t -> 
+unionEffLists : Nat -> Tactic
+unionEffLists O = Refine "GiveUpUEF" `Seq` Solve
+unionEffLists (S n)
+   = GoalType "UnionEffLists"
+         (Try (Refine "DoneUEF" `Seq` Solve)
+              (Try (Refine "CopyIUEF" `Seq` unionEffLists n)
+                   (Try (Refine "DropUEF" `Seq` unionEffLists n)
+                        (Try (Refine "AddUEF" `Seq` unionEffLists n)
+                             (Refine "SearchUEF" `Seq` unionEffLists n)))))
+
+updateResTy : (xs : List EFFECT) -> EffElem e a xs -> e a b t ->
               List EFFECT
 updateResTy {b} (MkEff a e :: xs) Here n = (MkEff b e) :: xs
 updateResTy (x :: xs) (There p) n = x :: updateResTy xs p n
@@ -83,7 +101,7 @@ infix 5 :::, :-, :=
 data LRes : lbl -> Type -> Type where
      (:=) : (x : lbl) -> res -> LRes x res
 
-(:::) : lbl -> EFFECT -> EFFECT 
+(:::) : lbl -> EFFECT -> EFFECT
 (:::) {lbl} x (MkEff r eff) = MkEff (LRes x r) eff
 
 private
@@ -101,8 +119,8 @@ data EffM : (m : Type -> Type) ->
      value   : a -> EffM m xs xs a
      ebind   : EffM m xs xs' a -> (a -> EffM m xs' xs'' b) -> EffM m xs xs'' b
      effect  : {a, b: _} -> {e : Effect} ->
-               (prf : EffElem e a xs) -> 
-               (eff : e a b t) -> 
+               (prf : EffElem e a xs) ->
+               (eff : e a b t) ->
                EffM m xs (updateResTy xs prf eff) t
      lift    : (prf : SubList ys xs) ->
                EffM m ys ys' t -> EffM m xs (updateWith ys' xs prf) t
@@ -112,6 +130,14 @@ data EffM : (m : Type -> Type) ->
      catch   : Catchable m err =>
                EffM m xs xs' a -> (err -> EffM m xs xs' a) ->
                EffM m xs xs' a
+     empty   : Alternative m =>
+               EffM m xs xs' a
+     or      : Alternative m =>
+               (inPrfs  : UnionEffLists xs ys xs zs) ->
+               (outPrfs : UnionEffLists xs' ys' xs' zs') ->
+               EffM m xs xs' a ->
+               EffM m ys ys' a ->
+               EffM m (reverse zs) (reverse zs') a
      (:-)    : (l : ty) -> EffM m [x] [y] t -> EffM m [l ::: x] [l ::: y] t
 
 --   Eff : List (EFFECT m) -> Type -> Type
@@ -124,12 +150,11 @@ lift' {prf} e = lift prf e
 
 implicit
 effect' : {a, b: _} -> {e : Effect} ->
-          {default tactics { reflect findEffElem 10; solve; } 
-             prf : EffElem e a xs} -> 
-          (eff : e a b t) -> 
+          {default tactics { reflect findEffElem 10; solve; }
+             prf : EffElem e a xs} ->
+          (eff : e a b t) ->
          EffM m xs (updateResTy xs prf eff) t
 effect' {prf} e = effect prf e
-
 
 -- for 'do' notation
 
@@ -151,27 +176,40 @@ pure = value
                   arg <- v
                   return (fn arg)
 
+infixl 3 <|>
+
+(<|>) : Alternative m =>
+        {a: _} -> {e : Effect} ->
+        {default tactics { reflect unionEffLists 100; solve; }
+          inPrfs :  UnionEffLists xs ys xs zs} ->
+        {default tactics { reflect unionEffLists 100; solve; }
+          outPrfs : UnionEffLists xs' ys' xs' zs'} ->
+        EffM m xs xs' a ->
+        EffM m ys ys' a ->
+        EffM m (reverse zs) (reverse zs') a
+(<|>) {inPrfs} {outPrfs} l r = or inPrfs outPrfs l r
+
 -- an interpreter
 
 private
-execEff : Env m xs -> (p : EffElem e res xs) -> 
+execEff : Env m xs -> (p : EffElem e res xs) ->
           (eff : e res b a) ->
           (Env m (updateResTy xs p eff) -> a -> m t) -> m t
-execEff (val :: env) Here eff' k 
+execEff (val :: env) Here eff' k
     = handle val eff' (\res, v => k (res :: env) v)
-execEff (val :: env) (There p) eff k 
+execEff (val :: env) (There p) eff k
     = execEff env p eff (\env', v => k (val :: env') v)
 
 eff : Env m xs -> EffM m xs xs' a -> (Env m xs' -> a -> m b) -> m b
 eff env (value x) k = k env x
-eff env (prog `ebind` c) k 
+eff env (prog `ebind` c) k
    = eff env prog (\env', p' => eff env' (c p') k)
 eff env (effect prf effP) k = execEff env prf effP k
-eff env (lift prf effP) k 
-   = let env' = dropEnv env prf in 
+eff env (lift prf effP) k
+   = let env' = dropEnv env prf in
          eff env' effP (\envk, p' => k (rebuildEnv envk prf env) p')
 eff env (new r prog) k
-   = let env' = r :: env in 
+   = let env' = r :: env in
          eff env' prog (\(v :: envk), p' => k envk p')
 eff env (catch prog handler) k
    = catch (eff env prog k)
@@ -201,7 +239,7 @@ Eff m xs t = EffM m xs xs t
 -- some higher order things
 
 mapE : Applicative m => (a -> Eff m xs b) -> List a -> Eff m xs (List b)
-mapE f []        = pure [] 
+mapE f []        = pure []
 mapE f (x :: xs) = [| f x :: mapE f xs |]
 
 when : Applicative m => Bool -> Eff m xs () -> Eff m xs ()
