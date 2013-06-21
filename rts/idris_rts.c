@@ -337,8 +337,8 @@ void* idris_mmap(void* hnd, i_int can_write, i_int length) {
     if (result == MAP_FAILED) {
 	return NULL;
     }
-    return result;
 #endif
+    return result;
 }
 
 i_int idris_munmap(void* addr, i_int length) {
