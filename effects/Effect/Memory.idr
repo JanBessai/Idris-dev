@@ -52,7 +52,7 @@ data RawMemory : Effect where
 private
 do_malloc : Nat -> IOExcept String Ptr
 do_malloc size with (fromInteger (cast size) == size)
-  | True  = do ptr  <- ioe_lift $ mkForeign (FFun "malloc" [FInt] FPtr) (cast size)
+  | True  = do ptr  <- ioe_lift $ mkForeign (FFun "malloc" [FInt] FPtr) (fromInteger $ cast size)
                fail <- ioe_lift $ nullPtr ptr
                if fail then ioe_fail "Cannot allocate memory"
                else return ptr
@@ -62,7 +62,7 @@ private
 do_mmap : File -> Mode -> Nat -> IOExcept String Ptr
 do_mmap (FHandle ptr) mode size with (fromInteger (cast size) == size)
   | True  = do res  <- ioe_lift $ mkForeign (FFun "idris_mmap" [FPtr, FInt, FInt] FPtr)
-                                            ptr (case mode of Read => 0; _ => 1) (cast size)
+                                            ptr (case mode of Read => 0; _ => 1) (fromInteger $ cast size)
                fail <- ioe_lift $ nullPtr ptr
                if fail then ioe_fail "Cannot map file"
                else return res             
@@ -72,7 +72,7 @@ private
 do_memset : Ptr -> Nat -> Bits8 -> Nat -> IO ()
 do_memset ptr offset c size
   = mkForeign (FFun "idris_memset" [FPtr, FInt, FChar, FInt] FUnit)
-              ptr (cast offset) c (cast size)
+              ptr (fromInteger $ cast offset) c (fromInteger $ cast size)
 
 private
 do_free : Ptr -> IO ()
@@ -82,7 +82,7 @@ private
 do_munmap : Ptr -> Nat -> IOExcept String ()
 do_munmap ptr size
   = do res <- ioe_lift $ mkForeign (FFun "idris_munmap" [FPtr, FInt] FInt)
-                                   ptr (cast size)
+                                   ptr (fromInteger $ cast size)
        if (res == 0) then return ()
        else ioe_fail "Could not unmap memory"
 
@@ -90,13 +90,17 @@ private
 do_memmove : Ptr -> Ptr -> Nat -> Nat -> Nat -> IO ()
 do_memmove dest src dest_offset src_offset size
   = mkForeign (FFun "idris_memmove" [FPtr, FPtr, FInt, FInt, FInt] FUnit)
-              dest src (cast dest_offset) (cast src_offset) (cast size)
+              dest
+              src
+              (fromInteger $ cast dest_offset)
+              (fromInteger $ cast src_offset)
+              (fromInteger $ cast size)
 
 private
 do_peek : Ptr -> Nat -> (size : Nat) -> IO (Vect Bits8 size)
 do_peek _   _       O = return (Prelude.Vect.Nil)
 do_peek ptr offset (S n)
-  = do b <- mkForeign (FFun "idris_peek" [FPtr, FInt] FChar) ptr (cast offset)
+  = do b <- mkForeign (FFun "idris_peek" [FPtr, FInt] FChar) ptr (fromInteger $ cast offset)
        bs <- do_peek ptr (S offset) n
        Prelude.Monad.return (Prelude.Vect.(::) b bs)
 
@@ -104,7 +108,7 @@ private
 do_poke : Ptr -> Nat -> Vect Bits8 size -> IO ()
 do_poke _   _      []     = return ()
 do_poke ptr offset (b::bs)
-  = do mkForeign (FFun "idris_poke" [FPtr, FInt, FChar] FUnit) ptr (cast offset) b
+  = do mkForeign (FFun "idris_poke" [FPtr, FInt, FChar] FUnit) ptr (fromInteger $ cast offset) b
        do_poke ptr (S offset) bs
 
 instance Handler RawMemory (IOExcept String) where

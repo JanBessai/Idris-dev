@@ -316,7 +316,7 @@ do_fileLength h = mkForeign (FFun "idris_fileLength" [FPtr] FInt) h
 
 fileLength : File -> IO Nat
 fileLength (FHandle ptr) = do l <- do_fileLength ptr
-                              return (fromInteger l)
+                              return (fromInteger (cast l))
 
 partial
 do_ferror : Ptr -> IO Int
