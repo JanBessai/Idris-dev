@@ -1,9 +1,9 @@
 module Main
 
-millionList : List Integer
-millionList = [1..1000000]
+mkList : Integer -> List Integer -> List Integer
+mkList x xs = if x == 1 then (x :: xs) else mkList (x - 1) (x::xs)
 
 main : IO ()
-main = print $ foldr (+) (the Integer 0) millionList
+main = print $ foldr (+) (fromInteger 0) (mkList (fromInteger 1000000) [])
 
 
