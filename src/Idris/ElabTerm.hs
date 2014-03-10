@@ -72,8 +72,11 @@ build ist info pattern opts fn tm
          tm <- get_term
          ctxt <- get_context
          probs <- get_probs
+         u <- getUnifyLog
 
-         when (not pattern) $ do matchProblems True; unifyProblems
+         when (not pattern) $ 
+           traceWhen u ("Remaining problems:\n" ++ show probs) $ 
+             do matchProblems True; unifyProblems
          probs <- get_probs
          case probs of
             [] -> return ()
@@ -458,6 +461,8 @@ elab ist info pattern opts fn tm
 --                    trace ("ns is " ++ show ns) $ return ()
                     -- mark any type class arguments as injective
                     mapM_ checkIfInjective (map snd ns)
+                    unifyProblems -- try again with the new information,
+                                  -- to help with disambiguation
                     -- Sort so that the implicit tactics and alternatives go last
                     let (ns', eargs) = unzip $
                              sortBy cmpArg (zip ns args)
@@ -480,12 +485,21 @@ elab ist info pattern opts fn tm
                                                   (movelast n)
                                          else movelast n)
                               (ivs' \\ ivs)
-      where -- normal < tactic < default tactic
+      where -- normal < alternatives < lambdas < rewrites < tactic < default tactic
+            -- reason for lambdas after alternatives is that having 
+            -- the alternative resolved can help with typechecking the lambda
+            -- or the rewrite. Rewrites/tactics need as much information
+            -- as possible about the type.
+            -- FIXME: Better would be to allow alternative resolution to be
+            -- retried after more information is in.
             cmpArg (_, x) (_, y)
                    = compare (conDepth 0 (getTm x) + priority x + alt x) 
                              (conDepth 0 (getTm y) + priority y + alt y)
                 where alt t = case getTm t of
                                    PAlternative False _ -> 5
+                                   PAlternative True _ -> 1
+                                   PLam _ _ _ -> 2
+                                   PRewrite _ _ _ _ -> 3
                                    _ -> 0
 
             -- Score a point for every level where there is a non-constructor
@@ -1604,11 +1618,19 @@ reflectErr (AlreadyDefined n) = raw_apply (Var $ reflErrName "AlreadyDefined") [
 reflectErr (ProofSearchFail e) = raw_apply (Var $ reflErrName "ProofSearchFail") [reflectErr e]
 reflectErr (NoRewriting tm) = raw_apply (Var $ reflErrName "NoRewriting") [reflect tm]
 reflectErr (At fc err) = raw_apply (Var $ reflErrName "At") [reflectFC fc, reflectErr err]
-           where reflectFC (FC source line col) = raw_apply (Var $ reflErrName "FileLoc")
-                                                            [ RConstant (Str source)
-                                                            , RConstant (I line)
-                                                            , RConstant (I col)
-                                                            ]
+           where reflectFC (FC source (sl, sc) (el, ec)) = raw_apply (Var $ reflErrName "FileLoc")
+                                                             [ RConstant (Str source)
+                                                              , raw_apply (Var pairCon) [
+                                                                      RConstant (AType (ATInt ITNative)),
+                                                                      RConstant (AType (ATInt ITNative)),
+                                                                      RConstant (I sl),
+                                                                      RConstant (I sc)]
+                                                              , raw_apply (Var pairCon) [
+                                                                      RConstant (AType (ATInt ITNative)),
+                                                                      RConstant (AType (ATInt ITNative)),
+                                                                      RConstant (I el),
+                                                                      RConstant (I ec)]
+                                                              ]
 reflectErr (Elaborating str n e) =
   raw_apply (Var $ reflErrName "Elaborating")
             [ RConstant (Str str)
